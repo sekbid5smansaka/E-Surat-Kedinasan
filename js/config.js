@@ -1,5 +1,5 @@
 /* Satu-satunya berkas yang perlu Anda ubah setelah menerapkan backend (Apps Script → Terapkan → Aplikasi web → salin URL /exec). */
 window.ESURAT = {
-  API_URL: 'https://script.google.com/a/macros/sma.belajar.id/s/AKfycbzajnHWa9D1phKS5pjhKHc10S_TrHZESuH8W8rki0DF-Hpw4jk0RBxwaNud5mlgCbir/exec',
+  API_URL: 'https://script.google.com/macros/s/AKfycbzLTjIDjsBO2Atl2xVq2GovFMwBd5b9QK4wBogwE5U2LL8Wyh8aSMHPRIAEEBofpbk/exec',
   VERSI: '1.0.0'
 };
