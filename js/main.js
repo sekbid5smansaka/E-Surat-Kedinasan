@@ -39,7 +39,9 @@ async function tampilLogin(darurat) {
   if (!darurat && /^https:\/\/script\.google/.test(window.ESURAT.API_URL)) { const r = await Api.call('auth.config'); if (r.success && r.data.googleClientId) { cfg = r.data; muatGoogle(cfg.googleClientId); } }
 }
 function sesiBerhasil(r) {
-  if (!r.success) { if (r.message) toast(r.message, 'err'); return; } Api.setTok(r.data.token); E.S.me = r.data.me;
+  // galat jaringan sudah dijelaskan oleh kotak diagnosis, jadi tidak ditoast lagi
+  if (!r.success) { if (r.message && !(r.data && r.data.code === 'NET')) toast(r.message, 'err'); return; }
+  Api.setTok(r.data.token); E.S.me = r.data.me;
   if (r.data.me.wajibGanti && !r.data.boot) { app().innerHTML = '<div class="login"><div class="box"><div class="skeleton"></div></div></div>'; gantiSandi(true); return; }
   mulai(r.data.boot);
 }
@@ -95,13 +97,25 @@ E.mulaiIdle = () => {
   setInterval(() => { if (!E.S.me) return; const batas = (Number(E.S.ref.pengaturan.SESI_MENIT) || 60) * 60000, sisa = batas - (Date.now() - last); if (sisa <= 0) { E.sesiBerakhir('Sesi berakhir karena tidak aktif.'); } else if (sisa < 120000 && !E._warn) { E._warn = true; toast('Sesi akan berakhir dalam 2 menit karena tidak aktif.', 'err'); setTimeout(() => E._warn = false, 130000); } }, 20000);
 };
 E.drainSoon = debounce(() => Api.call('notif.drain', {}, { quiet: true, keep: true }), 2500);
-function warm() { const u = window.ESURAT.API_URL; if (/^https:\/\/script\.google/.test(u)) fetch(u + '?w=tick', { mode: 'no-cors' }).catch(() => {}); }
+function warm() { if (!Api.okEver || !Api.base) return; fetch(Api.base + '?w=tick', { mode: 'no-cors' }).catch(() => {}); }   // hanya setelah sambungan terbukti berhasil
 setInterval(() => { if (!document.hidden) warm(); }, 4 * 60000);
 window.addEventListener('online', E.sync); window.addEventListener('offline', () => { Api.online = false; E.sync(); });
 window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); E.pwa = e; });
 if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
 
 /* ===== start ===== */
+/** Satu kotak diagnosis (bukan puluhan toast) saat server tidak dapat dijangkau sama sekali. */
+E.diagKoneksi = () => {
+  if (E._diag && Date.now() - E._diag < 30000) return; E._diag = Date.now();   // tampil sekali per 30 dtk
+  const u = (() => { try { return Api.urls()[0]; } catch (e) { return ''; } })(), uji = u + '?ping';
+  modal({ title: 'Server tidak dapat dijangkau', size: 'lg', sticky: true, body: `<div class="col"><div class="notice e">${ic('cloud_off')}<div>Browser memblokir permintaan ke backend. Penyebab tersering: <b>penerapan Apps Script belum berakses "Anyone / Siapa saja"</b> bagi pengguna tanpa login Google, atau URL di <span class="mono">js/config.js</span> salah.</div></div>
+  <ol style="margin:0;padding-left:20px"><li>Buka tautan uji di <b>jendela Incognito</b>: <a href="${esc(uji)}" target="_blank" rel="noopener" class="mono small" style="word-break:break-all">${esc(uji.replace(/(\/s\/.{6}).+(.{6}\/exec)/, '$1…$2'))}</a>. Harus tampil <span class="mono">{"success":true…}</span>. Bila diminta login, akses penerapan belum benar.</li>
+  <li>Apps Script → <b>Deploy → Manage deployments</b> → ikon pensil → <b>Who has access: Anyone</b> → <b>Version: New version</b> → Deploy.</li>
+  <li>Akun Workspace (mis. belajar.id) bisa dibatasi admin domain sehingga "Anyone" tidak tersedia. Minta admin mengizinkan, atau pasang backend di akun Gmail pribadi.</li>
+  <li>Pastikan <span class="mono">API_URL</span> berakhiran <span class="mono">/exec</span> dan berasal dari penerapan <b>terbaru</b>. Setelah mengubah <span class="mono">config.js</span>, push ulang lalu muat ulang dengan Ctrl+F5.</li></ol></div>`,
+    buttons: [{ label: 'Coba lagi', icon: 'refresh', onClick: () => { location.reload(); } }, { label: 'Tutup', cls: 'sec' }] });
+};
+
 (async function init() {
   warm();
   if (!/^https:\/\/script\.google/.test(window.ESURAT.API_URL)) { app().innerHTML = `<div class="login"><div class="box"><h1>Konfigurasi belum lengkap</h1><p class="sub">Buka <span class="mono">js/config.js</span> dan isi <b>API_URL</b> dengan URL aplikasi web Apps Script (berakhiran <span class="mono">/exec</span>), lalu unggah ulang ke GitHub.</p></div></div>`; return; }

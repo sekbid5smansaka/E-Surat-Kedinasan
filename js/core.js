@@ -28,17 +28,31 @@ const STAF = ['ADMIN', 'TU'];
 const Api = E.Api = {
   tok: sessionStorage.getItem('es_tok') || '', cache: new Map(), lastMs: 0, lastCall: Date.now(), online: true, pending: 0,
   setTok(t) { this.tok = t || ''; t ? sessionStorage.setItem('es_tok', t) : sessionStorage.removeItem('es_tok'); },
-  async post(body, attempt) {
-    const url = window.ESURAT.API_URL;
-    if (!/^https:\/\/script\.google(usercontent)?\.com\//.test(url)) throw new Error('URL backend belum diatur. Edit js/config.js (API_URL).');
+  okEver: false, base: '',
+  /** URL Workspace "/a/macros/DOMAIN/s/ID/exec" mengalihkan pemanggil anonim ke login Google (tanpa CORS). Bentuk publiknya "/macros/s/ID/exec". */
+  urls() {
+    const asli = String(window.ESURAT.API_URL || '').trim();
+    if (!/^https:\/\/script\.google(usercontent)?\.com\//.test(asli)) throw new Error('URL backend belum diatur. Edit js/config.js (API_URL).');
+    if (this.base) return [this.base];
+    const publik = asli.replace(/\/a\/macros\/[^\/]+\/s\//, '/macros/s/');
+    return publik !== asli ? [publik, asli] : [asli];
+  },
+  async kirim(url, body) {
     const ctl = new AbortController(), to = setTimeout(() => ctl.abort(), 50000);
     try {
       const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(body), signal: ctl.signal, redirect: 'follow' });
-      const j = await r.json(); this.online = true; return j;
-    } catch (e) {
-      if ((attempt || 0) < 1 && e.name !== 'AbortError') { await new Promise(r => setTimeout(r, 900)); return this.post(body, 1); }   // reqId sama → aman diulang
-      this.online = false; throw new Error(e.name === 'AbortError' ? 'Server terlalu lama merespons.' : 'Tidak dapat terhubung ke server. Periksa koneksi internet.');
-    } finally { clearTimeout(to); E.sync && E.sync(); }
+      return await r.json();
+    } finally { clearTimeout(to); }
+  },
+  async post(body, ulang) {
+    let err;
+    for (const u of this.urls()) {
+      try { const j = await this.kirim(u, body); this.base = u; this.okEver = true; this.online = true; E.sync && E.sync(); return j; }
+      catch (e) { err = e; if (e.name === 'AbortError') break; }
+    }
+    if (this.okEver && !ulang && !(err && err.name === 'AbortError')) { await new Promise(r => setTimeout(r, 900)); return this.post(body, true); }   // gangguan sesaat: ulang sekali (reqId sama → aman)
+    this.online = false; E.sync && E.sync();
+    const e = new Error(err && err.name === 'AbortError' ? 'Server terlalu lama merespons.' : 'Tidak dapat terhubung ke server.'); e.net = true; e.belumPernah = !this.okEver; throw e;
   },
   /** Panggil aksi. Mengembalikan objek respons {success,data,message}. Tidak melempar untuk galat bisnis. */
   async call(action, data, o) {
@@ -53,11 +67,11 @@ const Api = E.Api = {
       if (o.write && !res.success && !o.quiet && res.message && !(res.data && ['AUTH', 'CHANGE_PASSWORD'].includes(res.data.code))) toast(res.message, 'err');
       if (o.write && res.success) { this.bust(); if (!o.quiet && res.message) toast(res.message, 'ok'); if (action !== 'notif.drain' && E.drainSoon) E.drainSoon(); }
       return res;
-    } catch (e) { toast(e.message, 'err'); return { success: false, message: e.message, data: null }; }
+    } catch (e) { if (e.net && e.belumPernah && E.diagKoneksi) E.diagKoneksi(); else toast(e.message, 'err'); return { success: false, message: e.message, data: { code: 'NET' } }; }
     finally { this.pending--; }
   },
   /** Seperti call, tetapi menampilkan toast galat dan mengembalikan data (atau null). */
-  async get(action, data, o) { const r = await this.call(action, data, o); if (!r.success) { if (!(r.data && ['AUTH', 'CHANGE_PASSWORD', 'STALE'].includes(r.data.code))) toast(r.message, 'err'); return null; } return r.data; },
+  async get(action, data, o) { const r = await this.call(action, data, o); if (!r.success) { if (!(r.data && ['AUTH', 'CHANGE_PASSWORD', 'STALE', 'NET'].includes(r.data.code))) toast(r.message, 'err'); return null; } return r.data; },
   /** Stale-while-revalidate: tampilkan cache seketika (jika ada), lalu perbarui senyap. */
   async swr(key, action, data, render) {
     const c = this.cache.get(key); if (c) render(c.data, true);
@@ -68,7 +82,9 @@ const Api = E.Api = {
 };
 
 /* ===== toast / modal ===== */
+const _toastT = {};
 function toast(msg, type) {
+  const k = type + msg, n = Date.now(); if (_toastT[k] && n - _toastT[k] < 8000) return; _toastT[k] = n;   // pesan sama dalam 8 dtk tidak ditumpuk
   let w = $('.toasts'); if (!w) { w = document.createElement('div'); w.className = 'toasts'; w.setAttribute('role', 'status'); w.setAttribute('aria-live', 'polite'); document.body.appendChild(w); }
   const t = document.createElement('div'); t.className = 'toast ' + (type || ''); t.innerHTML = `${ic(type === 'err' ? 'error' : type === 'ok' ? 'check_circle' : 'info')}<div>${esc(msg)}</div>`;
   w.appendChild(t); setTimeout(() => t.remove(), type === 'err' ? 7000 : 4000);
